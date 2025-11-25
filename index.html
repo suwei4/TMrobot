@@ -1195,7 +1195,7 @@ const allQuestions = [
                 
                 const hintText = document.getElementById('countHint');
                 if(val === 'smart') {
-                    hintText.innerText = '(錯越多次的題目，出現機率越高)';
+                    hintText.innerText = '(優先順序：沒做過 > 錯很多 > 錯很少 > 對很少 > 對很多)';
                 } else {
                     hintText.innerText = '(從範圍內隨機抽出題目)';
                 }
@@ -1266,15 +1266,32 @@ const allQuestions = [
         const stats = JSON.parse(localStorage.getItem('robotQuizStats') || '{}');
         let items = pool.map(q => {
             const s = stats[q.id] || { wrong: 0, correct: 0 };
-            let weight = 1 + (s.wrong * 5); 
+            let weight = 0;
+
+            // 優先順序：沒做過 > 錯很多 > 錯很少 > 對很少 > 對很多
+            if (s.wrong === 0 && s.correct === 0) {
+                // 1. 沒做過：權重最高 (例如 100,000)
+                weight = 100000;
+            } else if (s.wrong > 0) {
+                // 2. 做錯過：權重次高 (例如 10,000 + 錯次數 * 100)
+                // 錯越多，權重越高
+                weight = 10000 + (s.wrong * 100);
+            } else {
+                // 3. 做對過 (且沒錯過)：權重最低 (例如 1,000 / 對次數)
+                // 對越少 (剛學會)，權重相對高；對很多次 (已熟練)，權重低
+                weight = 1000 / Math.max(1, s.correct);
+            }
+            
             return { ...q, weight: weight };
         });
 
         const selected = [];
+        // 如果題目數量不足，就全部回傳 (隨機打亂)
         if (items.length <= count) {
             return items.sort(() => 0.5 - Math.random());
         }
 
+        // 權重抽樣 (不重複)
         for (let i = 0; i < count; i++) {
             const totalWeight = items.reduce((sum, item) => sum + item.weight, 0);
             let randomVal = Math.random() * totalWeight;
