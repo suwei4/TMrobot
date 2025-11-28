@@ -299,6 +299,58 @@
         .legend-item { display: flex; align-items: center; gap: 5px; }
         .box { width: 12px; height: 12px; border-radius: 2px; }
 
+        /* ====== 分析摘要與 Tooltip ====== */
+        .analysis-summary {
+            display: flex;
+            justify-content: space-around;
+            margin-bottom: 15px;
+            padding: 15px;
+            background: #f8f9fa;
+            border-radius: 8px;
+            border: 1px solid #e9ecef;
+        }
+        .summary-item {
+            text-align: center;
+        }
+        .summary-label {
+            font-size: 0.85em;
+            color: #666;
+            margin-bottom: 5px;
+        }
+        .summary-val {
+            font-size: 1.4em;
+            font-weight: bold;
+            color: #333;
+        }
+        .summary-val.good { color: var(--success); }
+        .summary-val.bad { color: var(--error); }
+
+        .chart-tooltip {
+            position: fixed; /* 使用 fixed 以避免被 overflow hidden 裁切 */
+            background: rgba(0, 0, 0, 0.85);
+            color: #fff;
+            padding: 8px 12px;
+            border-radius: 6px;
+            font-size: 12px;
+            pointer-events: none;
+            z-index: 9999;
+            display: none;
+            white-space: nowrap;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            transform: translate(-50%, -100%); /* 讓 tooltip 位於滑鼠上方 */
+            margin-top: -10px;
+        }
+        .chart-tooltip::after {
+            content: '';
+            position: absolute;
+            top: 100%;
+            left: 50%;
+            margin-left: -5px;
+            border-width: 5px;
+            border-style: solid;
+            border-color: rgba(0, 0, 0, 0.85) transparent transparent transparent;
+        }
+
         /* ====== 歷史表格樣式 ====== */
         .history-table {
             width: 100%;
@@ -448,6 +500,7 @@
         <!-- 個人分析圖表 -->
         <div class="panel-group">
             <h3>📊 個人做題分析 (點擊題目查看詳情)</h3>
+            <div id="analysisSummary"></div>
             <div class="chart-legend">
                 <div class="legend-item"><div class="box" style="background:var(--success)"></div> 比較熟 (對 > 錯)</div>
                 <div class="legend-item"><div class="box" style="background:var(--error)"></div> 需加強 (錯 > 對)</div>
@@ -1195,7 +1248,7 @@ const allQuestions = [
                 
                 const hintText = document.getElementById('countHint');
                 if(val === 'smart') {
-                    hintText.innerText = '(優先順序：沒做過 > 錯很多 > 錯很少 > 對很少 > 對很多)';
+                    hintText.innerText = '(優先順序：沒做過 > 答錯減答對(淨錯題)越多越優先)';
                 } else {
                     hintText.innerText = '(從範圍內隨機抽出題目)';
                 }
@@ -1268,18 +1321,20 @@ const allQuestions = [
             const s = stats[q.id] || { wrong: 0, correct: 0 };
             let weight = 0;
 
-            // 優先順序：沒做過 > 錯很多 > 錯很少 > 對很少 > 對很多
+            // 優先順序：沒做過 > (答錯 - 答對) 越大越優先
             if (s.wrong === 0 && s.correct === 0) {
-                // 1. 沒做過：權重最高 (例如 100,000)
-                weight = 100000;
-            } else if (s.wrong > 0) {
-                // 2. 做錯過：權重次高 (例如 10,000 + 錯次數 * 100)
-                // 錯越多，權重越高
-                weight = 10000 + (s.wrong * 100);
+                // 1. 沒做過：給予固定高權重 (例如 5000)
+                // 讓它比 "稍微錯一點" 的題目優先，但比 "錯很多" 的題目低
+                weight = 5000;
             } else {
-                // 3. 做對過 (且沒錯過)：權重最低 (例如 1,000 / 對次數)
-                // 對越少 (剛學會)，權重相對高；對很多次 (已熟練)，權重低
-                weight = 1000 / Math.max(1, s.correct);
+                // 2. 已做過：根據 (答錯 - 答對) 的淨值計算權重
+                // 淨值越大 (錯越多)，權重呈指數成長
+                // 基準 100，每多錯一題 (淨值+1)，權重 * 1.5
+                const netWrong = s.wrong - s.correct;
+                weight = 100 * Math.pow(1.5, netWrong);
+                
+                // 避免權重過小 (例如淨值 -20 時)
+                if (weight < 1) weight = 1;
             }
             
             return { ...q, weight: weight };
@@ -1527,10 +1582,17 @@ const allQuestions = [
     function renderAnalysisChart() {
         const stats = JSON.parse(localStorage.getItem('robotQuizStats') || '{}');
         const container = document.getElementById('analysisChart');
+        const summaryContainer = document.getElementById('analysisSummary');
         container.innerHTML = '';
+        if(summaryContainer) summaryContainer.innerHTML = '';
 
+        // 1. 準備數據與計算摘要
+        let totalCorrect = 0;
+        let totalWrong = 0;
         let dataPoints = Object.keys(stats).map(qid => {
             const s = stats[qid];
+            totalCorrect += s.correct;
+            totalWrong += s.wrong;
             return {
                 id: parseInt(qid),
                 correct: s.correct,
@@ -1539,9 +1601,43 @@ const allQuestions = [
             };
         }).filter(d => (d.correct + d.wrong) > 0);
 
+        // 2. 渲染摘要
+        if(summaryContainer) {
+            const totalAttempts = totalCorrect + totalWrong;
+            const accuracy = totalAttempts > 0 ? Math.round((totalCorrect / totalAttempts) * 100) : 0;
+            
+            summaryContainer.innerHTML = `
+                <div class="summary-item">
+                    <div class="summary-label">總答題數</div>
+                    <div class="summary-val">${totalAttempts}</div>
+                </div>
+                <div class="summary-item">
+                    <div class="summary-label">總答對</div>
+                    <div class="summary-val good">${totalCorrect}</div>
+                </div>
+                <div class="summary-item">
+                    <div class="summary-label">總答錯</div>
+                    <div class="summary-val bad">${totalWrong}</div>
+                </div>
+                <div class="summary-item">
+                    <div class="summary-label">正確率</div>
+                    <div class="summary-val ${accuracy >= 60 ? 'good' : 'bad'}">${accuracy}%</div>
+                </div>
+            `;
+        }
+
         if (dataPoints.length === 0) {
-            container.innerHTML = '<div style="width:100%; text-align:center; color:#999;">尚無答題數據，請先開始測驗。</div>';
+            container.innerHTML = '<div style="width:100%; text-align:center; color:#999; padding: 50px;">尚無答題數據，請先開始測驗。</div>';
             return;
+        }
+
+        // 3. 準備 Tooltip (如果還沒有)
+        let tooltip = document.getElementById('chartTooltip');
+        if (!tooltip) {
+            tooltip = document.createElement('div');
+            tooltip.id = 'chartTooltip';
+            tooltip.className = 'chart-tooltip';
+            document.body.appendChild(tooltip);
         }
 
         dataPoints.sort((a, b) => a.id - b.id);
@@ -1551,6 +1647,17 @@ const allQuestions = [
             const group = document.createElement('div');
             group.className = 'chart-bar-group';
             group.onclick = () => showQuestionDetail(d.id); 
+            
+            // Tooltip 事件
+            group.onmousemove = (e) => {
+                tooltip.style.display = 'block';
+                tooltip.style.left = e.clientX + 'px';
+                tooltip.style.top = e.clientY + 'px';
+                tooltip.innerHTML = `<strong>第 ${d.id} 題</strong><br>答對: ${d.correct} 次<br>答錯: ${d.wrong} 次<br>淨分: ${d.net}`;
+            };
+            group.onmouseleave = () => {
+                tooltip.style.display = 'none';
+            };
             
             const heightPercent = Math.abs(d.net) / maxVal * 100;
             const topDiv = document.createElement('div');
@@ -1564,9 +1671,9 @@ const allQuestions = [
 
             const bar = document.createElement('div');
             bar.className = 'bar';
-            bar.style.height = `${heightPercent}%`;
+            bar.style.height = `${Math.max(heightPercent, 5)}%`; // 至少顯示一點高度
             
-            group.title = `第 ${d.id} 題: 對 ${d.correct} / 錯 ${d.wrong}`;
+            // group.title = `第 ${d.id} 題: 對 ${d.correct} / 錯 ${d.wrong}`; // 移除舊的 tooltip
 
             if (d.net > 0) {
                 bar.classList.add('bar-positive');
@@ -1576,10 +1683,13 @@ const allQuestions = [
                 botDiv.appendChild(bar);
             } else {
                 const dot = document.createElement('div');
-                dot.style.width = '100%';
-                dot.style.height = '2px';
+                dot.style.width = '8px';
+                dot.style.height = '8px';
+                dot.style.borderRadius = '50%';
                 dot.style.backgroundColor = '#ccc';
+                dot.style.margin = '0 auto';
                 topDiv.style.justifyContent = 'flex-end';
+                topDiv.style.alignItems = 'center';
                 topDiv.appendChild(dot);
             }
 
