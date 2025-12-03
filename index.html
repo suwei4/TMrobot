@@ -156,8 +156,13 @@
             gap: 15px;
         }
 
+        /* 手機端：改為橫向顯示且四個選項並排 */
         @media (max-width: 600px) {
-            .options-grid { grid-template-columns: 1fr; }
+            .options-grid { grid-template-columns: repeat(4, 1fr); }
+        }
+        /* 手機橫向模式 */
+        @media (max-width: 900px) and (orientation: landscape) {
+            .options-grid { grid-template-columns: repeat(4, 1fr); }
         }
 
         .option-btn {
