@@ -1608,25 +1608,61 @@ const allQuestions = [
 
         // 2. 渲染摘要
         if(summaryContainer) {
+            // 計算總體數據
             const totalAttempts = totalCorrect + totalWrong;
             const accuracy = totalAttempts > 0 ? Math.round((totalCorrect / totalAttempts) * 100) : 0;
             
+            // 計算近10次數據
+            const history = JSON.parse(localStorage.getItem('robotQuizHistory') || '[]');
+            const recent10 = history.slice(0, 10);
+            let recentTotal = 0;
+            let recentCorrect = 0;
+            recent10.forEach(h => {
+                recentTotal += h.total;
+                recentCorrect += h.score;
+            });
+            const recentAccuracy = recentTotal > 0 ? Math.round((recentCorrect / recentTotal) * 100) : 0;
+
             summaryContainer.innerHTML = `
-                <div class="summary-item">
-                    <div class="summary-label">總答題數</div>
-                    <div class="summary-val">${totalAttempts}</div>
-                </div>
-                <div class="summary-item">
-                    <div class="summary-label">總答對</div>
-                    <div class="summary-val good">${totalCorrect}</div>
-                </div>
-                <div class="summary-item">
-                    <div class="summary-label">總答錯</div>
-                    <div class="summary-val bad">${totalWrong}</div>
-                </div>
-                <div class="summary-item">
-                    <div class="summary-label">正確率</div>
-                    <div class="summary-val ${accuracy >= 60 ? 'good' : 'bad'}">${accuracy}%</div>
+                <div style="width:100%; display:flex; flex-direction:column; gap:15px;">
+                    <!-- 總體數據 -->
+                    <div style="display:flex; justify-content:space-around; align-items:center;">
+                        <div class="summary-item">
+                            <div class="summary-label">總答題數</div>
+                            <div class="summary-val">${totalAttempts}</div>
+                        </div>
+                        <div class="summary-item">
+                            <div class="summary-label">總答對</div>
+                            <div class="summary-val good">${totalCorrect}</div>
+                        </div>
+                        <div class="summary-item">
+                            <div class="summary-label">總答錯</div>
+                            <div class="summary-val bad">${totalWrong}</div>
+                        </div>
+                        <div class="summary-item">
+                            <div class="summary-label">總正確率</div>
+                            <div class="summary-val ${accuracy >= 60 ? 'good' : 'bad'}">${accuracy}%</div>
+                        </div>
+                    </div>
+                    
+                    <!-- 分隔線 -->
+                    <div style="border-top:1px dashed #ddd;"></div>
+
+                    <!-- 近10次數據 -->
+                    <div style="display:flex; justify-content:space-around; align-items:center;">
+                        <div class="summary-item">
+                            <div class="summary-label">近10次題數</div>
+                            <div class="summary-val">${recentTotal}</div>
+                        </div>
+                        <div class="summary-item">
+                            <div class="summary-label">近10次答對</div>
+                            <div class="summary-val good">${recentCorrect}</div>
+                        </div>
+                        <div class="summary-item">
+                            <div class="summary-label">近10次正確率</div>
+                            <div class="summary-val ${recentAccuracy >= 60 ? 'good' : 'bad'}">${recentAccuracy}%</div>
+                        </div>
+                    </div>
                 </div>
             `;
         }
