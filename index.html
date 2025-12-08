@@ -1253,7 +1253,7 @@ const allQuestions = [
                 
                 const hintText = document.getElementById('countHint');
                 if(val === 'smart') {
-                    hintText.innerText = '(優先順序：沒做過 > 答錯減答對(淨錯題)越多越優先)';
+                    hintText.innerText = '(淨分(答對-答錯)越低，出現機率越高)';
                 } else {
                     hintText.innerText = '(從範圍內隨機抽出題目)';
                 }
@@ -1324,23 +1324,25 @@ const allQuestions = [
         const stats = JSON.parse(localStorage.getItem('robotQuizStats') || '{}');
         let items = pool.map(q => {
             const s = stats[q.id] || { wrong: 0, correct: 0 };
-            let weight = 0;
-
-            // 優先順序：沒做過 > (答錯 - 答對) 越大越優先
-            if (s.wrong === 0 && s.correct === 0) {
-                // 1. 沒做過：給予固定高權重 (例如 5000)
-                // 讓它比 "稍微錯一點" 的題目優先，但比 "錯很多" 的題目低
-                weight = 5000;
-            } else {
-                // 2. 已做過：根據 (答錯 - 答對) 的淨值計算權重
-                // 淨值越大 (錯越多)，權重呈指數成長
-                // 基準 100，每多錯一題 (淨值+1)，權重 * 1.5
-                const netWrong = s.wrong - s.correct;
-                weight = 100 * Math.pow(1.5, netWrong);
-                
-                // 避免權重過小 (例如淨值 -20 時)
-                if (weight < 1) weight = 1;
-            }
+            
+            // 計算淨分 (答對 - 答錯)
+            // 沒做過 (0,0) 淨分為 0
+            const netScore = s.correct - s.wrong;
+            
+            // 權重計算：
+            // 使用指數遞減函數：Base * Factor ^ NetScore
+            // 淨分越小 (負越多，錯越多)，權重越高
+            // 淨分越大 (正越多，對越多)，權重越低
+            // 0.7 的底數確保了即使淨分大於 1，權重也會持續降低，不會全部一樣
+            // 例如：
+            // 淨分 -5 (錯5) => 100 * 0.7^-5 ≈ 595
+            // 淨分 -1 (錯1) => 100 * 0.7^-1 ≈ 142
+            // 淨分 0 (沒做過) => 100 * 0.7^0 = 100
+            // 淨分 +1 (對1) => 100 * 0.7^1 = 70
+            // 淨分 +5 (對5) => 100 * 0.7^5 ≈ 16
+            // 淨分 +10 (對10) => 100 * 0.7^10 ≈ 2.8
+            
+            let weight = 100 * Math.pow(0.7, netScore);
             
             return { ...q, weight: weight };
         });
